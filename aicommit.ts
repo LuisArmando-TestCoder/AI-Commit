@@ -73,7 +73,7 @@ async function callGitHubModels(diff: string): Promise<string> {
         {
           role: "system",
           content:
-            "You are a git commit message generator. Given a git diff, respond with ONLY a single concise commit message (no quotes, no explanation, max 80 characters). Use imperative mood (e.g. 'Add', 'Fix', 'Update', 'Remove'). No bullet points, no newlines.",
+            "You are a git commit message generator. Given a git diff, respond with ONLY a single commit message (no quotes, max 80 characters). Use imperative mood (e.g. 'Add', 'Fix', 'Update', 'Remove'). No bullet points, no newlines.",
         },
         {
           role: "user",
@@ -141,7 +141,7 @@ async function callOpenAI(diff: string): Promise<string> {
         {
           role: "system",
           content:
-            "You are a git commit message generator. Given a git diff, respond with ONLY a single concise commit message (no quotes, no explanation, max 80 characters). Use imperative mood (e.g. 'Add', 'Fix', 'Update', 'Remove'). No bullet points, no newlines.",
+            "You are a git commit message generator. Given a git diff, respond with ONLY a single commit message (no quotes, no explanation, max 80 characters). Use imperative mood (e.g. 'Add', 'Fix', 'Update', 'Remove'). No bullet points, no newlines.",
         },
         {
           role: "user",
