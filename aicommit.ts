@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-run --allow-env --allow-net --allow-read
+// #!/usr/bin/env -S deno run --allow-run --allow-env --allow-net --allow-read
 
 import { load } from "jsr:@std/dotenv";
 
