@@ -9,23 +9,41 @@ An AI-powered git commit tool built with Deno. It reads your `git diff`, sends i
 - 🌿 **Branch-aware** — always pushes to your current branch
 - 🔍 **Smart diffing** — only reads source folders (`src/`, `static/`, `public/`, `lib/`, `routes/`, etc.)
 - 📏 **Diff truncation** — caps diff size to stay within LLM context limits
-- 🔁 **Multi-provider fallback** — tries GitHub Models → Gemini → OpenAI
+- 🔁 **Multi-provider fallback** — tries GitHub Models → Gemini → OpenAI → Gemini Web (browser scraper)
+- 🆓 **Works with no API key** — final fallback drives the Gemini web UI via Selenium
 
 ## Requirements
 
 - [Deno](https://deno.land/) v1.40+
-- At least one API key:
+- Optionally, one or more API keys (tried first, in order):
   - `GITHUB_TOKEN` or `GITHUB_CLASSIC_TOKEN` (for GitHub Models — free)
   - `GEMINI_API_KEY` (for Gemini fallback)
   - `OPENAI_API_KEY` (for OpenAI fallback)
+- If you have **no working API key**, the browser-scraper fallback is used instead. That needs:
+  - Google Chrome installed (Selenium Manager auto-fetches the matching driver)
+  - A one-time login to [Gemini](https://gemini.google.com/app) in the automated Chrome profile
 
 ## Installation
 
 ```bash
-deno install --global --allow-run --allow-env --allow-net --allow-read \
+deno install --global --allow-all \
   -n aicommit -f \
   https://raw.githubusercontent.com/LuisArmando-TestCoder/AI-Commit/master/aicommit.ts
 ```
+
+> `--allow-all` is used because the no-API-key fallback launches Chrome via Selenium
+> (which needs to spawn processes, read/write a browser profile, and access the network).
+> If you only ever use the API providers, you can install with the narrower
+> `--allow-run --allow-env --allow-net --allow-read` instead.
+
+### No-API-key mode (Gemini web scraper)
+
+When all API providers are unavailable, aicommit opens Chrome at `gemini.google.com/app`,
+types the diff into the chat box, and scrapes the reply — no key required. The first run
+opens a visible window so you can log into Gemini; the session is saved to a persistent
+profile at `~/.aicommit/chrome-profile`, so later runs reuse it. To run without a window
+(after logging in once), set `AICOMMIT_HEADLESS=1`.
+
 
 After installation, make sure `~/.deno/bin` is in your PATH. Add this to your `~/.zshrc` or `~/.bashrc`:
 

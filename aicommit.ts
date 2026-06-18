@@ -1,4 +1,4 @@
-// #!/usr/bin/env -S deno run --allow-run --allow-env --allow-net --allow-read
+// #!/usr/bin/env -S deno run --allow-all
 
 import { load } from "jsr:@std/dotenv";
 
@@ -49,6 +49,12 @@ function* getLLMProviders(diff: string) {
       fn: () => callGenericChatAPI("https://api.openai.com/v1/chat/completions", KEYS.OPENAI!, diff, "gpt-4o")
     };
   }
+
+  // Always-available fallback: no API key — scrapes the Gemini web UI in a real browser
+  yield {
+    name: "Gemini Web (browser scraper, no API key)",
+    fn: () => callGeminiScraper(diff)
+  };
 }
 
 async function callGenericChatAPI(url: string, token: string, diff: string, model: string) {
@@ -79,6 +85,97 @@ async function callGeminiAPI(diff: string) {
   });
   const data = await res.json();
   return data?.candidates?.[0]?.content?.parts?.[0]?.text;
+}
+
+// ─── Gemini Web Scraper (no API key — drives Chrome via Selenium) ─────────────
+
+const SCRAPER_PROFILE_DIR = `${Deno.env.get("HOME")}/.aicommit/chrome-profile`;
+
+/** Waits until the latest Gemini response stops changing, then returns its text. */
+async function waitForStableGeminiResponse(driver: any, By: any, timeoutMs = 120000): Promise<string> {
+  let previous = "";
+  let stable = 0;
+  const start = Date.now();
+  await new Promise((r) => setTimeout(r, 3000));
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const els = await driver.findElements(By.css("message-content, .markdown, .model-response-text"));
+      if (els.length > 0) {
+        const text: string = await els[els.length - 1].getText();
+        if (text && text.length > 0) {
+          if (text === previous) {
+            if (++stable >= 3) return text;
+          } else {
+            stable = 0;
+            previous = text;
+          }
+        }
+      }
+    } catch (_) {
+      // Ignore stale-element errors while the DOM streams in
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return previous;
+}
+
+/**
+ * Generates a commit message by automating the Gemini web UI with Selenium.
+ * Uses a persistent Chrome profile so you only log into Gemini once.
+ * Set AICOMMIT_HEADLESS=1 to run without a visible window (needs an already
+ * authenticated profile).
+ */
+async function callGeminiScraper(diff: string): Promise<string> {
+  // Lazy-load so API-only users never pay the Selenium import/startup cost
+  const selenium: any = await import("npm:selenium-webdriver");
+  const chrome: any = await import("npm:selenium-webdriver/chrome.js");
+  const { Builder, Browser, By, until } = selenium;
+  const { Options } = chrome;
+
+  const prompt =
+    "You are a git commit message generator. Reply with ONLY a single concise commit " +
+    "message (imperative mood, max 80 chars, no quotes), wrapped exactly like " +
+    "---your message---.\n\nGenerate a commit message for this diff:\n\n" + diff;
+
+  const options = new Options();
+  options.addArguments(`--user-data-dir=${SCRAPER_PROFILE_DIR}`);
+  options.addArguments("--window-size=1200,1000");
+  options.addArguments("--disable-blink-features=AutomationControlled");
+  options.excludeSwitches("enable-automation");
+  if (Deno.env.get("AICOMMIT_HEADLESS") === "1") {
+    options.addArguments("--headless=new");
+    options.addArguments("--no-sandbox");
+    options.addArguments("--disable-dev-shm-usage");
+    options.addArguments("--disable-gpu");
+  }
+
+  const driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(options).build();
+  try {
+    await driver.get("https://gemini.google.com/app");
+    // Generous wait so you can log into Gemini on the first run
+    const editor = await driver.wait(until.elementLocated(By.css("div.ql-editor")), 120000);
+    await driver.wait(until.elementIsVisible(editor), 120000);
+
+    // @ts-ignore: HTMLElement exists in the browser context, not in Deno
+    await driver.executeScript((el: HTMLElement, text: string) => {
+      el.focus();
+      el.innerText = text;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }, editor, prompt);
+
+    await new Promise((r) => setTimeout(r, 1500));
+    const sendBtn = await driver.wait(until.elementLocated(By.css("button[aria-label*='Send']")), 30000);
+    await sendBtn.click();
+
+    const raw = await waitForStableGeminiResponse(driver, By);
+    if (!raw) throw new Error("No response scraped from Gemini.");
+
+    const dash = raw.match(/---\s*([\s\S]*?)\s*---/);
+    return (dash ? dash[1] : raw).split("\n")[0].trim();
+  } finally {
+    await driver.quit();
+  }
 }
 
 // ─── Main Workflow Generator ────────────────────────────────────────────────
