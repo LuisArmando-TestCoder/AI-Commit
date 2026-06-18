@@ -5,12 +5,13 @@ import { load } from "jsr:@std/dotenv";
 // ─── Config & Env ────────────────────────────────────────────────────────────
 
 const SCRIPT_DIR = new URL(".", import.meta.url).pathname;
-const SOURCE_PATHS = ["src", "static", "public", "app", "lib", "components", "pages", "routes"];
 const MAX_DIFF_CHARS = 6000;
 
 const env = await load({ envPath: `${SCRIPT_DIR}.env`, export: false });
 const KEYS = {
-  GITHUB: env["GITHUB_TOKEN"] ?? Deno.env.get("GITHUB_TOKEN"),
+  GITHUB:
+    env["GITHUB_CLASSIC_TOKEN"] ?? env["GITHUB_TOKEN"] ??
+    Deno.env.get("GITHUB_CLASSIC_TOKEN") ?? Deno.env.get("GITHUB_TOKEN"),
   GEMINI: env["GEMINI_API_KEY"] ?? Deno.env.get("GEMINI_API_KEY"),
   OPENAI: env["OPENAI_API_KEY"] ?? Deno.env.get("OPENAI_API_KEY"),
 };
@@ -92,10 +93,23 @@ async function* commitWorkflow() {
   
   yield `🌿 Working on branch: ${branch}`;
 
-  // Get Diff
-  let { out: diff } = await run(["git", "diff", "HEAD", "--", ...SOURCE_PATHS]);
-  if (!diff) ({ out: diff } = await run(["git", "diff", "--cached"]));
-  if (!diff) return yield "✅ Nothing to commit.";
+  // Detect any pending changes anywhere in the repo (tracked, staged, or untracked)
+  const { out: status } = await run(["git", "status", "--porcelain"]);
+  if (!status) {
+    yield "✅ Nothing to commit.";
+    return;
+  }
+
+  // Stage everything first so new/untracked files are included in the diff
+  yield "📦 Staging changes...";
+  await run(["git", "add", "-A"]);
+
+  // Build the message from the full staged diff (captures edits, additions, deletions)
+  const { out: diff } = await run(["git", "diff", "--cached"]);
+  if (!diff) {
+    yield "✅ Nothing to commit.";
+    return;
+  }
 
   const truncated = diff.slice(0, MAX_DIFF_CHARS);
   let commitMsg = "";
@@ -118,9 +132,6 @@ async function* commitWorkflow() {
   yield `💬 Message: ${commitMsg}`;
 
   // Git Operations
-  yield "📦 Staging changes...";
-  await run(["git", "add", "-A"]);
-
   yield "📝 Committing...";
   const { success: cOk, err: cErr } = await run(["git", "commit", "-m", commitMsg]);
   if (!cOk) throw new Error(`Commit failed: ${cErr}`);
